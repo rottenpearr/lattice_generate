@@ -121,6 +121,15 @@ def single_generation():
     if add_noise:
         noise_level = float(input("Уровень шума (доля от a), по умолчанию 0.05: ") or "0.05")
 
+    # Вакансии (дефекты)
+    add_vacancies_input = input("\nДобавить вакансии (дефекты решетки)? (y/n), по умолчанию n: ").lower()
+    add_vacancies = add_vacancies_input == 'y'
+    vacancy_prob = 0.0
+
+    if add_vacancies:
+        vacancy_prob = float(input("Вероятность вакансии (0.01-0.5), по умолчанию 0.05: ") or "0.05")
+        print(f"  → Примерно {vacancy_prob * 100:.1f}% атомов будут удалены")
+
     # Имя файла
     print()
     default_name = f"{lattice_type}_{nx}x{ny}x{nz}.xyz"
@@ -139,9 +148,10 @@ def single_generation():
     print(f"Углы: α={lattice.alpha:.1f}°, β={lattice.beta:.1f}°, γ={lattice.gamma:.1f}°")
     print(f"Размеры: {nx} × {ny} × {nz}")
     print(f"Шум: {'Да' if add_noise else 'Нет'}{f' (уровень {noise_level})' if add_noise else ''}")
+    print(f"Вакансии: {'Да' if add_vacancies else 'Нет'}{f' (вероятность {vacancy_prob})' if add_vacancies else ''}")
     print()
 
-    positions = generate_lattice_parallel(lattice, nx, ny, nz, add_noise, noise_level)
+    positions = generate_lattice_parallel(lattice, nx, ny, nz, add_noise, noise_level, vacancy_prob)
 
     save_xyz(filepath, positions, 'A')
 
@@ -194,7 +204,9 @@ def generate_ionic_dataset():
     print("   • Всего: 9 файлов")
     print()
     print("2. Расширенный набор (1000 файлов)")
-    print("   • 10 размеров: от 3×3×3 до 30×30×30")
+    print("   • 10 размеров: кубические и несимметричные")
+    print("     (3×3×3, 5×5×5, 7×7×7, 10×10×10, 5×5×8, 8×8×5,")
+    print("      6×8×10, 12×10×8, 15×15×15, 20×15×10)")
     print("   • 10 уровней шума: от 0.0 до 0.15")
     print("   • 10 вариаций для каждой комбинации")
     print("   • Всего: 1000 файлов (~5-15 минут)")
@@ -206,15 +218,39 @@ def generate_ionic_dataset():
     if choice == '2':
         # Расширенный набор: 1000 файлов
         # 10 размеров × 10 уровней шума × 10 вариаций = 1000
-        sizes = [(3, 3, 3), (5, 5, 5), (7, 7, 7), (10, 10, 10), (12, 12, 12),
-                 (15, 15, 15), (18, 18, 18), (20, 20, 20), (25, 25, 25), (30, 30, 30)]
+        # Используем разные размеры: кубические и несимметричные
+        sizes = [
+            (3, 3, 3),  # Малая кубическая
+            (5, 5, 5),  # Средняя кубическая
+            (7, 7, 7),  # Кубическая
+            (10, 10, 10),  # Большая кубическая
+            (5, 5, 8),  # Вытянутая по Z
+            (8, 8, 5),  # Сплющенная по Z
+            (6, 8, 10),  # Несимметричная
+            (12, 10, 8),  # Несимметричная обратная
+            (15, 15, 15),  # Очень большая кубическая
+            (20, 15, 10)  # Большая несимметричная
+        ]
         noise_levels = [0.0, 0.02, 0.03, 0.05, 0.07, 0.08, 0.10, 0.12, 0.13, 0.15]
         n_variations = 10  # Количество вариаций для каждой комбинации
     elif choice == '3':
-        print("\nВведите размеры (через запятую, например: 3,5,10):")
+        print("\nВведите размеры:")
+        print("Формат 1: Симметричные (например: 3,5,10) → 3×3×3, 5×5×5, 10×10×10")
+        print("Формат 2: Несимметричные (например: 3x4x5,5x5x8) → 3×4×5, 5×5×8")
         size_input = input("Размеры: ")
-        sizes_list = [int(s.strip()) for s in size_input.split(',')]
-        sizes = [(s, s, s) for s in sizes_list]
+
+        sizes = []
+        for s in size_input.split(','):
+            s = s.strip()
+            if 'x' in s.lower():
+                # Несимметричный формат: 3x4x5
+                parts = s.lower().split('x')
+                if len(parts) == 3:
+                    sizes.append((int(parts[0]), int(parts[1]), int(parts[2])))
+            else:
+                # Симметричный формат: 5 → 5x5x5
+                size = int(s)
+                sizes.append((size, size, size))
 
         print("\nВведите уровни шума (через запятую, 0 = без шума):")
         noise_input = input("Уровни шума: ")
@@ -241,6 +277,15 @@ def generate_ionic_dataset():
     }
     lattice_type = lattice_map.get(lattice_choice, 'cubic_primitive')
 
+    # Опция вакансий
+    add_vacancies_input = input("\nДобавить вакансии (дефекты решетки)? (y/n), по умолчанию n: ").lower()
+    add_vacancies = add_vacancies_input == 'y'
+    vacancy_prob = 0.0
+
+    if add_vacancies:
+        vacancy_prob = float(input("Вероятность вакансии (0.01-0.2), по умолчанию 0.05: ") or "0.05")
+        print(f"  → Примерно {vacancy_prob * 100:.1f}% атомов будут удалены")
+
     # Создание папки для датасета
     timestamp = time.strftime("%Y%m%d_%H%M%S")
     dataset_dir = f"xyz_files/dataset_{lattice_type}_{timestamp}"
@@ -252,6 +297,8 @@ def generate_ionic_dataset():
     print(f"\nПапка: {dataset_dir}")
     print(f"Тип решетки: {lattice_type}")
     print(f"Количество конфигураций: {len(sizes) * len(noise_levels) * n_variations}")
+    if add_vacancies:
+        print(f"Вакансии: Да (вероятность {vacancy_prob})")
     print()
 
     # Подготовка метаданных
@@ -290,10 +337,10 @@ def generate_ionic_dataset():
                 add_noise = noise_level > 0.0
 
                 # Устанавливаем seed для воспроизводимости (но разный для каждой вариации)
-                if add_noise:
+                if add_noise or add_vacancies:
                     np.random.seed(int(time.time() * 1000) % (2 ** 32) + current)
 
-                positions = generate_lattice_parallel(lattice, nx, ny, nz, add_noise, noise_level)
+                positions = generate_lattice_parallel(lattice, nx, ny, nz, add_noise, noise_level, vacancy_prob)
 
                 # Сохранение - используем чередование A/B для атомов
                 save_xyz(filepath, positions, 'A')  # Просто используем 'A' для всех атомов
@@ -308,6 +355,8 @@ def generate_ionic_dataset():
                     'size': f"{nx}x{ny}x{nz}",
                     'noise_level': noise_level,
                     'noise_enabled': add_noise,
+                    'vacancy_prob': vacancy_prob,
+                    'vacancy_enabled': add_vacancies,
                     'variation': variation + 1 if n_variations > 1 else 1,
                     'num_atoms': len(positions),
                     'a': lattice.a,
@@ -563,12 +612,12 @@ def show_info():
         'Моноклинная': {
             'ограничения': 'a ≠ b ≠ c, α = γ = 90°, β ≠ 90°',
             'типы': ['Примитивная (P)', 'Базо-центрированная (C)'],
-            'примеры': 'S'
+            'примеры': 'S, CaSO₄·2H₂O'
         },
         'Триклинная': {
             'ограничения': 'a ≠ b ≠ c, α ≠ β ≠ γ',
             'типы': ['Примитивная (P)'],
-            'примеры': 'K₂Cr₂O₇'
+            'примеры': 'CuSO₄·5H₂O, K₂Cr₂O₇'
         }
     }
 
@@ -611,9 +660,9 @@ def run_scalability_test():
         test_name = "Малая нагрузка"
     elif test_choice == '3':
         print("\nВведите параметры:")
-        nx = int(input("Размер по X (ячейки), по умолчанию 80: ") or "80")
-        ny = int(input("Размер по Y (ячейки), по умолчанию 80: ") or "80")
-        nz = int(input("Размер по Z (ячейки), по умолчанию 80: ") or "80")
+        nx = int(input("Размер по X (ионы), по умолчанию 80: ") or "80")
+        ny = int(input("Размер по Y (ионы), по умолчанию 80: ") or "80")
+        nz = int(input("Размер по Z (ионы), по умолчанию 80: ") or "80")
         n_tests = int(input("Количество тестов с разным шумом, по умолчанию 3: ") or "3")
         test_name = "Пользовательский"
     else:
@@ -625,7 +674,7 @@ def run_scalability_test():
     max_processes = max(1, total_cpus // 2)
 
     # Рассчитываем количество атомов
-    basis_count = 4  # Для ГЦК 4 атома на ячейку
+    basis_count = 4
     total_atoms = nx * ny * nz * basis_count
 
     print(f"\nПараметры теста:")

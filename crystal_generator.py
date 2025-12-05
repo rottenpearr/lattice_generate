@@ -178,7 +178,7 @@ class CrystalLattice:
         # Вектор c
         cx = self.c * np.cos(beta_rad)
         cy = self.c * (np.cos(alpha_rad) - np.cos(beta_rad) * np.cos(gamma_rad)) / np.sin(gamma_rad)
-        cz = np.sqrt(self.c**2 - cx**2 - cy**2)
+        cz = np.sqrt(self.c ** 2 - cx ** 2 - cy ** 2)
 
         return np.array([
             [ax, ay, az],
@@ -207,15 +207,16 @@ class CrystalLattice:
 
         elif centering == 'R':  # Rhombohedral (ромбоэдрическая)
             positions.extend([
-                np.array([1/3, 2/3, 2/3]),
-                np.array([2/3, 1/3, 1/3])
+                np.array([1 / 3, 2 / 3, 2 / 3]),
+                np.array([2 / 3, 1 / 3, 1 / 3])
             ])
 
         return positions
 
     def generate_lattice(self, nx: int, ny: int, nz: int,
-                        add_noise: bool = False,
-                        noise_level: float = 0.05) -> np.ndarray:
+                         add_noise: bool = False,
+                         noise_level: float = 0.05,
+                         vacancy_prob: float = 0.0) -> np.ndarray:
         """
         Генерирует координаты атомов решетки
 
@@ -223,6 +224,7 @@ class CrystalLattice:
             nx, ny, nz: Количество элементарных ячеек вдоль каждой оси
             add_noise: Добавлять ли шум к позициям
             noise_level: Уровень шума (доля от постоянной решетки)
+            vacancy_prob: Вероятность вакансии (0.0-1.0), 0 = нет вакансий
 
         Returns:
             Массив координат атомов формы (N, 3)
@@ -236,14 +238,18 @@ class CrystalLattice:
             for j in range(ny):
                 for k in range(nz):
                     cell_origin = i * lattice_vectors[0] + \
-                                j * lattice_vectors[1] + \
-                                k * lattice_vectors[2]
+                                  j * lattice_vectors[1] + \
+                                  k * lattice_vectors[2]
 
                     for basis_pos in basis_positions:
+                        # Проверка на вакансию (случайное удаление атома)
+                        if vacancy_prob > 0 and np.random.random() < vacancy_prob:
+                            continue  # Пропускаем этот атом (создаем вакансию)
+
                         atom_pos = cell_origin + \
-                                 basis_pos[0] * lattice_vectors[0] + \
-                                 basis_pos[1] * lattice_vectors[1] + \
-                                 basis_pos[2] * lattice_vectors[2]
+                                   basis_pos[0] * lattice_vectors[0] + \
+                                   basis_pos[1] * lattice_vectors[1] + \
+                                   basis_pos[2] * lattice_vectors[2]
 
                         if add_noise:
                             noise = np.random.normal(0, noise_level * self.a, 3)
@@ -256,7 +262,7 @@ class CrystalLattice:
 
 def generate_chunk(args):
     """Функция для генерации части решетки (для мультипроцессинга)"""
-    lattice, nx, ny, nz_start, nz_end, add_noise, noise_level = args
+    lattice, nx, ny, nz_start, nz_end, add_noise, noise_level, vacancy_prob = args
 
     # Генерируем только часть решетки по оси z
     lattice_vectors = lattice.get_lattice_vectors()
@@ -268,14 +274,18 @@ def generate_chunk(args):
         for j in range(ny):
             for k in range(nz_start, nz_end):
                 cell_origin = i * lattice_vectors[0] + \
-                            j * lattice_vectors[1] + \
-                            k * lattice_vectors[2]
+                              j * lattice_vectors[1] + \
+                              k * lattice_vectors[2]
 
                 for basis_pos in basis_positions:
+                    # Проверка на вакансию (случайное удаление атома)
+                    if vacancy_prob > 0 and np.random.random() < vacancy_prob:
+                        continue  # Пропускаем этот атом (создаем вакансию)
+
                     atom_pos = cell_origin + \
-                             basis_pos[0] * lattice_vectors[0] + \
-                             basis_pos[1] * lattice_vectors[1] + \
-                             basis_pos[2] * lattice_vectors[2]
+                               basis_pos[0] * lattice_vectors[0] + \
+                               basis_pos[1] * lattice_vectors[1] + \
+                               basis_pos[2] * lattice_vectors[2]
 
                     if add_noise:
                         noise = np.random.normal(0, noise_level * lattice.a, 3)
@@ -288,6 +298,7 @@ def generate_chunk(args):
 
 def generate_lattice_parallel(lattice: CrystalLattice, nx: int, ny: int, nz: int,
                               add_noise: bool = False, noise_level: float = 0.05,
+                              vacancy_prob: float = 0.0,
                               n_processes: Optional[int] = None) -> np.ndarray:
     """
     Генерирует решетку с использованием мультипроцессинга
@@ -297,6 +308,7 @@ def generate_lattice_parallel(lattice: CrystalLattice, nx: int, ny: int, nz: int
         nx, ny, nz: Размеры решетки
         add_noise: Добавлять ли шум
         noise_level: Уровень шума
+        vacancy_prob: Вероятность вакансии (0.0-1.0), 0 = нет вакансий
         n_processes: Количество процессов (None = все доступные ядра)
     """
     if n_processes is None:
@@ -311,7 +323,7 @@ def generate_lattice_parallel(lattice: CrystalLattice, nx: int, ny: int, nz: int
         nz_end = nz if i == n_processes - 1 else (i + 1) * chunk_size
 
         if nz_start < nz:
-            chunks.append((lattice, nx, ny, nz_start, nz_end, add_noise, noise_level))
+            chunks.append((lattice, nx, ny, nz_start, nz_end, add_noise, noise_level, vacancy_prob))
 
     # Генерируем части решетки параллельно
     with Pool(processes=n_processes) as pool:
